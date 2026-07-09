@@ -44,11 +44,14 @@ object AuraWebViewCompat {
             setSupportMultipleWindows(true)
             mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
 
-            // Stability & Compatibility Settings
+            // Mobile viewport: respect PWA meta viewport, allow pinch-zoom on floor plans
             cacheMode = WebSettings.LOAD_DEFAULT
-            textZoom = 100 
+            textZoom = 100
             useWideViewPort = true
-            loadWithOverviewMode = true
+            loadWithOverviewMode = false
+            setSupportZoom(true)
+            builtInZoomControls = true
+            displayZoomControls = false
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 safeBrowsingEnabled = true

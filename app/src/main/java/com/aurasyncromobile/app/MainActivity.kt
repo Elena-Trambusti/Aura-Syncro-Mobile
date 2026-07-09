@@ -18,7 +18,6 @@ import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
-import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.activity.ComponentActivity
@@ -37,7 +36,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.WifiOff
@@ -57,7 +55,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -186,7 +183,7 @@ fun AuraSyncroWebView(
         webViewInstance?.goBack()
     }
 
-    Box(modifier = Modifier.fillMaxSize().safeDrawingPadding().background(brandDark)) {
+    Box(modifier = Modifier.fillMaxSize().background(brandDark)) {
         AndroidView(
             factory = { context ->
                 val webView = WebView(context).apply {
@@ -209,12 +206,8 @@ fun AuraSyncroWebView(
 
                     settings.apply {
                         userAgentString = "$userAgentString AuraSyncroMobile/1.0"
-                        cacheMode = WebSettings.LOAD_DEFAULT
                         allowFileAccess = true
                         allowContentAccess = true
-                        loadWithOverviewMode = true
-                        useWideViewPort = true
-                        setSupportZoom(false)
                     }
 
                     webViewClient = object : WebViewClient() {
