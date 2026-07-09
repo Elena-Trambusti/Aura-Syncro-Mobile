@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">Aura Syncro Mobile</string>
+    <string name="pwa_url" translatable="false">https://www.aurasyncro.com/login</string>
+</resources>

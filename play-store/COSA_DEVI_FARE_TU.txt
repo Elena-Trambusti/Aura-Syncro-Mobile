@@ -1,0 +1,148 @@
+================================================================================
+  AURA SYNCRO MOBILE - COSA DEVI FARE TU (GUIDA SEMPLICE)
+================================================================================
+
+L'app Android e PRONTA nel codice.
+Qui sotto solo i passaggi che SOLO TU puoi fare (perche servono account,
+soldi, password o accesso al tuo sito).
+
+--------------------------------------------------------------------------------
+PASSO 1 - PROVA L'APP SUL TUO TELEFONO (15 minuti)
+--------------------------------------------------------------------------------
+1. Collega il telefono al PC con il cavo USB
+2. Su telefono: Impostazioni > Opzioni sviluppatore > Debug USB = ON
+3. In Android Studio: clicca il triangolo verde Run
+4. L'app si apre e carica aurasyncro.com
+
+Se non hai Android Studio:
+- Apri la cartella: app\build\outputs\apk\debug\
+- Copia app-debug.apk sul telefono e installalo
+
+--------------------------------------------------------------------------------
+PASSO 2 - PROVA LA STAMPA (se hai una stampante termica)
+--------------------------------------------------------------------------------
+1. Accoppia la stampante Bluetooth dalle Impostazioni del telefono
+2. Apri l'app Aura Syncro
+3. Quando chiede i permessi Bluetooth, clicca CONSENTI
+4. Per WiFi: la stampante deve essere sulla stessa rete, serve il suo IP
+   (esempio: 192.168.1.100)
+
+Nota: la stampa dal gestionale funziona quando anche il SITO WEB chiama
+le funzioni native. Vedi PASSO 4.
+
+--------------------------------------------------------------------------------
+PASSO 3 - CREA ACCOUNT GOOGLE PLAY (una tantum, circa 25 USD)
+--------------------------------------------------------------------------------
+1. Vai su: https://play.google.com/console
+2. Clicca "Crea account sviluppatore"
+3. Paga la quota una tantum (~25 dollari)
+4. Compila i dati della tua azienda o attivita
+
+--------------------------------------------------------------------------------
+PASSO 4 - COLLEGA IL SITO WEB ALL'APP (IMPORTANTE)
+--------------------------------------------------------------------------------
+Il tuo sito aurasyncro.com deve "parlare" con l'app.
+
+File gia pronto per te:
+  web-integration\aura-android-bridge.js
+
+Cosa fare:
+1. Dai il file aura-android-bridge.js a chi gestisce il sito web
+2. Va incluso nel sito (o copiato nel codice del gestionale)
+3. Quando l'utente stampa uno scontrino, il sito deve chiamare:
+
+   AuraSyncro.onReady(function(native) {
+     if (!native.isAvailable) return;
+     native.requestPermissions();
+     native.printText("Test scontrino");
+   });
+
+Senza questo passaggio l'app funziona come browser, ma NON stampa dal gestionale.
+
+--------------------------------------------------------------------------------
+PASSO 5 - PRIVACY POLICY ONLINE (obbligatoria)
+--------------------------------------------------------------------------------
+1. Apri il file: play-store\PRIVACY_POLICY.html
+2. Sostituisci [INSERISCI NOME AZIENDA], [INSERISCI EMAIL], ecc.
+3. Caricalo sul tuo sito, esempio:
+   https://www.aurasyncro.com/privacy-app-mobile
+4. Google Play chiede questo link obbligatoriamente
+
+--------------------------------------------------------------------------------
+PASSO 6 - IMMAGINI PER IL PLAY STORE
+--------------------------------------------------------------------------------
+Ti servono:
+- Icona 512x512 px (PNG)
+- Immagine in evidenza 1024x500 px (PNG)
+- Almeno 2 screenshot del telefono con l'app aperta
+
+Suggerimento: fai screenshot con l'app sul telefono, schermata gestionale aperta.
+
+Testi gia pronti in: play-store\LISTING_PLAY_STORE.txt
+
+--------------------------------------------------------------------------------
+PASSO 7 - GENERA IL FILE PER GOOGLE PLAY (.AAB)
+--------------------------------------------------------------------------------
+Nel PC, apri PowerShell nella cartella del progetto ed esegui:
+
+  .\scripts\build-release.ps1
+
+Oppure:
+  .\gradlew.bat bundleRelease
+
+Il file finito sara in:
+  app\build\outputs\bundle\release\app-release.aab
+
+Questo e il file che carichi su Google Play Console.
+
+NOTA CHIAVE DI FIRMA:
+- Il file aurasyncro-release-key.keystore e la tua chiave segreta
+- NON perderlo e NON condividerlo
+- Se lo perdi, non potrai piu aggiornare l'app sul Play Store
+- Salvalo su chiavetta USB o cloud privato
+
+--------------------------------------------------------------------------------
+PASSO 8 - CARICA SU GOOGLE PLAY CONSOLE
+--------------------------------------------------------------------------------
+1. Vai su https://play.google.com/console
+2. Crea nuova app > Nome: Aura Syncro Mobile
+3. Produzione (o prima "Test interno" per provare)
+4. Carica app-release.aab
+5. Compila la scheda con i testi da LISTING_PLAY_STORE.txt
+6. Inserisci link privacy policy
+7. Carica screenshot e icona
+8. Compila "Data safety" e dichiarazione permessi Bluetooth
+9. Invia in revisione
+
+Tempo revisione Google: di solito da qualche ora a 7 giorni.
+
+--------------------------------------------------------------------------------
+PASSO 9 - CREDENZIALI TEST PER GOOGLE (se il gestionale ha login)
+--------------------------------------------------------------------------------
+Se per usare l'app serve login, Google chiede un account di test.
+Prepara:
+- email: test@...
+- password: ...
+e inseriscili nella sezione "Accesso app" della Play Console.
+
+--------------------------------------------------------------------------------
+RIEPILOGO VELOCE
+--------------------------------------------------------------------------------
+FATTO DAL CODICE (non devi rifarlo):
+  [x] App Android con WebView
+  [x] Stampanti Bluetooth e WiFi
+  [x] Bridge per sito web
+  [x] POS app launcher
+  [x] Build release configurata
+  [x] Keystore presente nel progetto
+
+DEVI FARE TU:
+  [ ] Provare app su telefono
+  [ ] Account Google Play Developer (~25 USD)
+  [ ] Integrare aura-android-bridge.js nel sito web
+  [ ] Pubblicare privacy policy online
+  [ ] Preparare screenshot e icona 512px
+  [ ] Caricare app-release.aab su Play Console
+  [ ] Compilare schede e inviare in revisione
+
+================================================================================

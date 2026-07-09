@@ -1,0 +1,48 @@
+=== TITOLO APP (max 30 caratteri) ===
+Aura Syncro Mobile
+
+=== DESCRIZIONE BREVE (max 80 caratteri) ===
+Gestionale premium per ristoranti, bar e locali. Stampa e POS integrati.
+
+=== DESCRIZIONE COMPLETA ===
+Aura Syncro Mobile e la versione Android del gestionale Aura Syncro.
+
+Pensata per ristoranti, bar, pizzerie e attivita food & beverage che vogliono
+velocita, eleganza e controllo totale della sala e della cucina.
+
+FUNZIONI PRINCIPALI
+- Accesso al gestionale Aura Syncro da smartphone e tablet
+- Interfaccia premium ottimizzata per uso professionale
+- Collegamento stampanti termiche Bluetooth
+- Collegamento stampanti WiFi di rete (ESC/POS)
+- Apertura app POS installate sul dispositivo (SumUp, Zettle, Stripe e altre)
+- Esperienza rapida con splash screen e caricamento ottimizzato
+
+PER CHI E
+- Ristoranti e locali che usano Aura Syncro
+- Staff di sala e cassa
+- Attivita che vogliono stampare scontrini e comande da mobile
+
+REQUISITI
+- Connessione internet per il gestionale
+- Stampante termica compatibile ESC/POS per stampa Bluetooth/WiFi
+- Permessi Bluetooth concessi dall'utente
+
+Supporto: [INSERISCI EMAIL]
+Sito: https://www.aurasyncro.com
+
+=== CATEGORIA SUGGERITA ===
+Business
+
+=== TAG / PAROLE CHIAVE ===
+gestionale ristorante, POS, comande, cassa, stampante termica, bar, pizzeria
+
+=== DICHIARAZIONE PERMESSI BLUETOOTH (Play Console) ===
+L'app usa Bluetooth per individuare e collegare stampanti termiche compatibili
+ESC/POS, al fine di stampare scontrini e documenti dal gestionale Aura Syncro.
+
+=== DATA SAFETY - INDICAZIONI ===
+- L'app carica contenuti web da aurasyncro.com
+- Dati account e ordini gestiti dal servizio web Aura Syncro
+- Bluetooth usato solo per stampanti
+- Nessuna vendita dati a terze parti (se corrisponde al tuo caso)
