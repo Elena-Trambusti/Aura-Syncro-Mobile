@@ -35,8 +35,10 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.WifiOff
 import androidx.compose.material3.Button
@@ -293,7 +295,10 @@ fun AuraSyncroWebView(
                 webViewInstance = webView
                 webView
             },
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier
+                .fillMaxSize()
+                .statusBarsPadding()
+                .navigationBarsPadding(),
             onRelease = { view ->
                 (view as? WebView)?.destroy()
             },
@@ -305,6 +310,7 @@ fun AuraSyncroWebView(
                 progress = { loadProgress },
                 modifier = Modifier
                     .fillMaxWidth()
+                    .statusBarsPadding()
                     .height(3.dp)
                     .align(Alignment.TopCenter),
                 color = brandGold,
