@@ -19,7 +19,14 @@ class WebAppInterface(
     private val printerManager: PrinterManager,
     private val posManager: PosManager,
     private val onRequestPermissions: () -> Unit,
+    private val onCompatEvent: (String, String) -> Unit = { _, _ -> },
 ) {
+
+    @JavascriptInterface
+    fun onAuraCompatEvent(event: String, detailJson: String): String {
+        onCompatEvent(event, detailJson)
+        return BridgeJson.success()
+    }
 
     @JavascriptInterface
     fun getPlatform(): String = "android"

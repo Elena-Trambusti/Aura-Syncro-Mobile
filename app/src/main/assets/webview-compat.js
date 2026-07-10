@@ -1,18 +1,19 @@
 (function () {
   if (window.__auraCompatInstalled) return;
-  // Persist across full page reloads inside the same WebView session.
   try {
     if (sessionStorage.getItem('__auraCompatInstalled') === '1') return;
   } catch (e) {}
   if (navigator.userAgent.indexOf('AuraSyncroMobile') === -1) return;
+
   window.__auraCompatInstalled = true;
   try { sessionStorage.setItem('__auraCompatInstalled', '1'); } catch (e) {}
 
   var AUTH_CACHE_KEY = 'aura-auth-cache';
   var TOKEN_KEY = 'token';
+  var SESSION_TOKEN_KEY = 'aura_session_token';
   var REFRESH_TOKEN_KEY = 'aura_refresh_token';
   var API_BASE = 'https://aura-syncro-s98ae.ondigitalocean.app/api';
-  var AUTH_CACHE_TTL_MS = 1440 * 60 * 1000;
+  var SITE_BASE = 'https://www.aurasyncro.com';
   var redirectScheduled = false;
 
   var DEMO_CREDENTIALS = {
@@ -21,11 +22,27 @@
     'es-can': { email: 'admin@demo-es-cn.com', password: 'admin123', slug: 'demo-es-cn' }
   };
 
-  function unregisterServiceWorkers() {
-    if (!('serviceWorker' in navigator)) return;
-    navigator.serviceWorker.getRegistrations().then(function (regs) {
-      regs.forEach(function (reg) { reg.unregister(); });
+  function clearAllCaches() {
+    if (!('caches' in window)) return Promise.resolve();
+    return caches.keys().then(function (keys) {
+      return Promise.all(keys.map(function (key) { return caches.delete(key); }));
     }).catch(function () {});
+  }
+
+  function unregisterServiceWorkers() {
+    if (!('serviceWorker' in navigator)) return Promise.resolve();
+    return navigator.serviceWorker.getRegistrations().then(function (regs) {
+      return Promise.all(regs.map(function (reg) { return reg.unregister(); }));
+    }).catch(function () {});
+  }
+
+  function disableServiceWorkerRegistration() {
+    if (!('serviceWorker' in navigator)) return;
+    try {
+      navigator.serviceWorker.register = function () {
+        return Promise.reject(new Error('Service worker disabled in AuraSyncroMobile'));
+      };
+    } catch (e) {}
   }
 
   function isDemoUser(email) {
@@ -47,34 +64,85 @@
       }));
     } catch (error) {}
     if (typeof data.token === 'string' && data.token.length > 0) {
-      try { localStorage.setItem(TOKEN_KEY, data.token); } catch (error) {}
+      try {
+        localStorage.setItem(TOKEN_KEY, data.token);
+        sessionStorage.setItem(SESSION_TOKEN_KEY, data.token);
+      } catch (error) {}
     }
     if (typeof data.refreshToken === 'string' && data.refreshToken.length > 0) {
       try { localStorage.setItem(REFRESH_TOKEN_KEY, data.refreshToken); } catch (error) {}
+    }
+    if (data.restaurant && data.restaurant.id) {
+      try { localStorage.setItem('restaurantId', String(data.restaurant.id)); } catch (error) {}
     }
     try { sessionStorage.setItem('aura_mobile_login', String(Date.now())); } catch (error) {}
   }
 
   function resolvePostLoginPath(data) {
-    return isDemoUser(data.user && data.user.email) ? '/tavoli' : '/dashboard';
+    if (isDemoUser(data.user && data.user.email)) return '/tavoli';
+    if (data.restaurant && data.restaurant.isSetupComplete === false) return '/onboarding';
+    return '/dashboard';
+  }
+
+  function isStuckLoading() {
+    var body = document.body;
+    if (!body) return true;
+    var text = (body.innerText || '').replace(/\s+/g, ' ').trim();
+    var loading = /caricamento in corso|loading/i.test(text);
+    var hasApp = !!document.querySelector(
+      'main, nav, [role="main"], [data-testid], .app-shell, #root > *:not(script):not(style)'
+    );
+    if (loading && !hasApp) return true;
+    return text.length < 8 && !hasApp;
+  }
+
+  function notifyNative(event, detail) {
+    try {
+      if (window.AndroidBridge && typeof window.AndroidBridge.onAuraCompatEvent === 'function') {
+        window.AndroidBridge.onAuraCompatEvent(event, detail ? JSON.stringify(detail) : '');
+      }
+    } catch (e) {}
+  }
+
+  function hardNavigate(path) {
+    var target = SITE_BASE + path;
+    if (window.location.href.indexOf(target) === 0) {
+      window.location.reload();
+      return;
+    }
+    window.location.assign(target + (target.indexOf('?') === -1 ? '?' : '&') + '_aura=' + Date.now());
+  }
+
+  function recoverFromStuckLoading(path) {
+    return clearAllCaches()
+      .then(unregisterServiceWorkers)
+      .then(function () {
+        disableServiceWorkerRegistration();
+        notifyNative('stuck-loading', { path: path || window.location.pathname });
+        hardNavigate(path || '/dashboard');
+      });
   }
 
   function scheduleHardRedirect(path) {
     if (redirectScheduled) return;
     redirectScheduled = true;
+    notifyNative('login-success', { path: path });
+
     setTimeout(function () {
       if (window.location.pathname !== path) {
-        window.location.assign(path);
+        hardNavigate(path);
       }
-    }, 250);
+    }, 400);
+
+    setTimeout(function () {
+      if (isStuckLoading()) {
+        recoverFromStuckLoading(path);
+      }
+    }, 5000);
   }
 
   function handleSuccessfulLogin(data) {
-    if (!data || !data.user) return;
-    // Non-demo users should be handled by the web app itself. The compat layer
-    // was tuned for demo flows; forcing storage writes / reloads can break real accounts.
-    if (!isDemoUser(data.user.email)) return;
-    if (!data.user.id) return;
+    if (!data || !data.user || !data.user.id) return;
     persistAuthSession(data);
     scheduleHardRedirect(resolvePostLoginPath(data));
   }
@@ -122,6 +190,36 @@
     };
   }
 
+  function hookHistoryApi() {
+    if (window.__auraHistoryHooked) return;
+    window.__auraHistoryHooked = true;
+
+    function onRouteChange() {
+      var path = window.location.pathname || '/';
+      if (path === '/login' || path === '/') return;
+      notifyNative('route-change', { path: path });
+      setTimeout(function () {
+        if (isStuckLoading()) {
+          recoverFromStuckLoading(path);
+        }
+      }, 4500);
+    }
+
+    var pushState = history.pushState;
+    history.pushState = function () {
+      var result = pushState.apply(history, arguments);
+      onRouteChange();
+      return result;
+    };
+    var replaceState = history.replaceState;
+    history.replaceState = function () {
+      var result = replaceState.apply(history, arguments);
+      onRouteChange();
+      return result;
+    };
+    window.addEventListener('popstate', onRouteChange);
+  }
+
   function pickDemoCredentials() {
     var path = (window.location.pathname || '/').toLowerCase();
     var lang = (document.documentElement.lang || 'it').toLowerCase();
@@ -148,11 +246,12 @@
       return response.json();
     }).then(function (data) {
       handleSuccessfulLogin(data);
-      scheduleHardRedirect('/tavoli');
     });
   }
 
   window.__auraEnterDemoLive = enterDemoLive;
+  window.__auraRecoverFromStuckLoading = recoverFromStuckLoading;
+  window.__auraIsStuckLoading = isStuckLoading;
 
   function installClickHandlers() {
     document.addEventListener('click', function (event) {
@@ -199,8 +298,10 @@
     });
   }
 
+  disableServiceWorkerRegistration();
+  clearAllCaches().then(unregisterServiceWorkers);
   installNetworkHooks();
-  unregisterServiceWorkers();
+  hookHistoryApi();
   installClickHandlers();
 
   watchCalendlyFrames();
@@ -208,4 +309,11 @@
   if (document.documentElement) {
     observer.observe(document.documentElement, { childList: true, subtree: true });
   }
+
+  setTimeout(function () {
+    var path = window.location.pathname || '/';
+    if (path !== '/login' && path !== '/' && isStuckLoading()) {
+      recoverFromStuckLoading(path);
+    }
+  }, 7000);
 })();

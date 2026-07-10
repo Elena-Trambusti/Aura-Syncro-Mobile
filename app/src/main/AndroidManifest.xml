@@ -22,6 +22,21 @@
         android:name="android.permission.ACCESS_COARSE_LOCATION"
         android:maxSdkVersion="30" />
 
+    <queries>
+        <package android:name="com.sumup.merchant" />
+        <package android:name="com.izettle.android" />
+        <package android:name="com.stripe.terminal" />
+        <package android:name="com.paypal.here" />
+        <package android:name="com.nexi.softpos" />
+        <package android:name="com.mypos" />
+        <package android:name="com.squareup" />
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <category android:name="android.intent.category.BROWSABLE" />
+            <data android:scheme="https" />
+        </intent>
+    </queries>
+
     <uses-feature
         android:name="android.hardware.bluetooth"
         android:required="false" />

@@ -1,5 +1,6 @@
 package com.aurasyncromobile.app.printer
 
+import android.annotation.SuppressLint
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothManager
@@ -18,6 +19,7 @@ class BluetoothPrinterConnection(
     private var socket: BluetoothSocket? = null
     private var output: OutputStream? = null
 
+    @SuppressLint("MissingPermission")
     override fun connect() {
         val bluetoothAdapter = adapter ?: error("Bluetooth non disponibile su questo dispositivo")
         if (!bluetoothAdapter.isEnabled) error("Bluetooth disattivato")

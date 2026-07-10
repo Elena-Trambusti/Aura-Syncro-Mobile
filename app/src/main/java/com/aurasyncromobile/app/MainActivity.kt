@@ -14,12 +14,15 @@ import android.view.animation.AccelerateInterpolator
 import android.webkit.ConsoleMessage
 import android.webkit.CookieManager
 import android.webkit.RenderProcessGoneDetail
+import android.webkit.SslErrorHandler
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.net.http.SslError
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
@@ -61,6 +64,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.animation.doOnEnd
+import androidx.core.graphics.toColorInt
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.lifecycleScope
 import com.aurasyncromobile.app.bridge.AndroidBridgeInjector
@@ -68,14 +72,16 @@ import com.aurasyncromobile.app.pos.PosManager
 import com.aurasyncromobile.app.printer.PrinterManager
 import com.aurasyncromobile.app.ui.theme.AuraSyncroMobileTheme
 import com.aurasyncromobile.app.webview.AuraWebViewCompat
+import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
-    private val keepSplashVisible = mutableStateOf(true)
+    private val keepSplashVisible = mutableStateOf(value = true)
     private lateinit var printerManager: PrinterManager
     private lateinit var posManager: PosManager
     private var fileChooserCallback: ValueCallback<Array<Uri>>? = null
+    private var auraWebView: WebView? = null
 
     private val permissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { /* no-op */ }
@@ -113,8 +119,9 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         lifecycleScope.launch {
-            // Emergenza: se dopo 5 secondi è ancora tutto nero, forziamo la chiusura della splash
-            delay(5000)
+            // Emergenza: se dopo 4 secondi è ancora tutto nero, forziamo la chiusura della splash
+            // Riduciamo il tempo e assicuriamoci che avvenga anche se qualcosa va storto
+            delay(4.seconds)
             if (keepSplashVisible.value) {
                 Log.w("AuraMainActivity", "Safety timeout: dismissing splash")
                 keepSplashVisible.value = false
@@ -125,23 +132,52 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             AuraSyncroMobileTheme {
-                Surface(modifier = Modifier.fillMaxSize(), color = Color(0xFF0D0D0D)) {
+                Surface(
+                    modifier = Modifier.fillMaxSize(),
+                    color = MaterialTheme.colorScheme.background,
+                ) {
                     AuraSyncroWebView(
                         url = getString(R.string.pwa_url),
+                        loginUrl = getString(R.string.pwa_url),
+                        baseUrl = getString(R.string.pwa_base_url),
+                        dashboardUrl = getString(R.string.pwa_dashboard_url),
                         printerManager = printerManager,
                         posManager = posManager,
                         onRequestPermissions = ::requestHardwarePermissions,
                         onShowFileChooser = ::showFileChooser,
-                        onFirstPageLoaded = { keepSplashVisible.value = false },
+                        onWebViewCreated = { webView -> auraWebView = webView },
+                        onWebViewDestroyed = { auraWebView = null },
+                        onFirstPageLoaded = {
+                            Log.i("AuraMainActivity", "WebView first page loaded, dismissing splash")
+                            keepSplashVisible.value = false
+                        },
                     )
                 }
             }
         }
     }
 
+    override fun onResume() {
+        super.onResume()
+        auraWebView?.apply {
+            onResume()
+            resumeTimers()
+        }
+    }
+
     override fun onPause() {
-        super.onPause()
+        auraWebView?.apply {
+            pauseTimers()
+            onPause()
+        }
         CookieManager.getInstance().flush()
+        super.onPause()
+    }
+
+    override fun onDestroy() {
+        auraWebView?.destroy()
+        auraWebView = null
+        super.onDestroy()
     }
 
     private fun requestHardwarePermissions() {
@@ -166,23 +202,152 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun AuraSyncroWebView(
     url: String,
+    loginUrl: String,
+    baseUrl: String,
+    dashboardUrl: String,
     printerManager: PrinterManager,
     posManager: PosManager,
     onRequestPermissions: () -> Unit,
     onShowFileChooser: (Intent, ValueCallback<Array<Uri>>) -> Boolean,
+    onWebViewCreated: (WebView) -> Unit,
+    onWebViewDestroyed: () -> Unit,
     onFirstPageLoaded: () -> Unit,
 ) {
     var webViewInstance by remember { mutableStateOf<WebView?>(null) }
     var canGoBack by remember { mutableStateOf(false) }
     var loadProgress by remember { mutableFloatStateOf(0f) }
     var isError by remember { mutableStateOf(false) }
-    
+    var blankRecoveryAttempts by remember { mutableStateOf(0) }
+    var currentSpaPath by remember { mutableStateOf("/login") }
+
     val logTag = "AuraWebView"
     val brandGold = Color(0xFFC5A059)
     val brandDark = Color(0xFF0D0D0D)
 
-    BackHandler(enabled = canGoBack) {
-        webViewInstance?.goBack()
+    fun updateCanGoBack(view: WebView?) {
+        canGoBack = view?.canGoBack() == true
+    }
+
+    fun isLoginUrl(pageUrl: String?): Boolean {
+        if (pageUrl.isNullOrBlank()) return false
+        return pageUrl.contains("/login", ignoreCase = true)
+    }
+
+    fun hardRecover(view: WebView, targetPath: String) {
+        Log.w(logTag, "Hard recovery verso $targetPath (tentativo ${blankRecoveryAttempts + 1})")
+        AuraWebViewCompat.purgeCaches(view)
+        view.setLayerType(View.LAYER_TYPE_SOFTWARE, null)
+        val bustUrl = "$baseUrl$targetPath?_aura=${System.currentTimeMillis()}"
+        view.loadUrl(bustUrl)
+    }
+
+    fun checkBlankPage(view: WebView?, loadedUrl: String?) {
+        if (view == null) return
+        val path = currentSpaPath
+        if (path == "/login" || path == "/") return
+
+        view.postDelayed({
+            view.evaluateJavascript(
+                """
+                (function() {
+                  if (window.__auraIsStuckLoading) return window.__auraIsStuckLoading() ? 'stuck' : 'ok';
+                  var body = document.body;
+                  if (!body) return 'no-body';
+                  var text = (body.innerText || '').replace(/\s+/g, ' ').trim();
+                  var loading = /caricamento in corso|loading/i.test(text);
+                  var hasApp = !!document.querySelector('main, nav, [role="main"], [data-testid], .app-shell, #root > *:not(script):not(style)');
+                  if (loading && !hasApp) return 'stuck-loading';
+                  if (text.length < 8 && !hasApp) return 'blank';
+                  return 'ok';
+                })()
+                """.trimIndent(),
+            ) { result ->
+                if (result == "\"ok\"" || result == "null") return@evaluateJavascript
+                Log.w(logTag, "Pagina bloccata ($result) path=$path url=$loadedUrl")
+                when {
+                    blankRecoveryAttempts == 0 -> {
+                        blankRecoveryAttempts++
+                        AuraWebViewCompat.injectCompatScript(view, view.context)
+                        view.evaluateJavascript("window.__auraRecoverFromStuckLoading && window.__auraRecoverFromStuckLoading('$path');", null)
+                    }
+                    blankRecoveryAttempts == 1 -> {
+                        blankRecoveryAttempts++
+                        hardRecover(view, path.ifBlank { "/dashboard" })
+                    }
+                    else -> {
+                        isError = true
+                        onFirstPageLoaded()
+                    }
+                }
+            }
+        }, 3_000L)
+    }
+
+    fun handleCompatEvent(event: String, detailJson: String) {
+        Log.i(logTag, "Compat event: $event detail=$detailJson")
+        val view = webViewInstance ?: return
+        when (event) {
+            "login-success", "route-change" -> {
+                blankRecoveryAttempts = 0
+                val path = runCatching {
+                    org.json.JSONObject(detailJson).optString("path", "/dashboard")
+                }.getOrDefault("/dashboard")
+                currentSpaPath = path
+                checkBlankPage(view, view.url)
+            }
+            "stuck-loading" -> {
+                val path = runCatching {
+                    org.json.JSONObject(detailJson).optString("path", "/dashboard")
+                }.getOrDefault("/dashboard")
+                if (blankRecoveryAttempts < 2) {
+                    blankRecoveryAttempts++
+                    hardRecover(view, path)
+                }
+            }
+        }
+    }
+
+    // Monitor SPA: dopo il login la URL nativa resta /login ma pathname JS cambia
+    androidx.compose.runtime.LaunchedEffect(webViewInstance) {
+        val view = webViewInstance ?: return@LaunchedEffect
+        while (true) {
+            delay(2.seconds)
+            view.evaluateJavascript("window.location.pathname || '/';") { pathResult ->
+                val path = pathResult?.trim('"') ?: return@evaluateJavascript
+                if (path != currentSpaPath) {
+                    currentSpaPath = path
+                    Log.d(logTag, "SPA path cambiato: $path")
+                    if (!isLoginUrl(path)) {
+                        blankRecoveryAttempts = 0
+                        checkBlankPage(view, view.url)
+                    }
+                }
+            }
+        }
+    }
+
+    // Gestione timeout caricamento
+    androidx.compose.runtime.LaunchedEffect(loadProgress) {
+        if (loadProgress > 0f && loadProgress < 0.1f) {
+            delay(15.seconds)
+            if (loadProgress < 0.1f && !isError) {
+                Log.e(logTag, "Caricamento troppo lento o bloccato")
+                isError = true
+                onFirstPageLoaded()
+            }
+        }
+    }
+
+    BackHandler(enabled = true) {
+        when {
+            isError -> {
+                isError = false
+                blankRecoveryAttempts = 0
+                webViewInstance?.reload()
+            }
+            webViewInstance?.canGoBack() == true -> webViewInstance?.goBack()
+            !isLoginUrl(webViewInstance?.url) -> webViewInstance?.loadUrl(loginUrl)
+        }
     }
 
     Box(modifier = Modifier.fillMaxSize().background(brandDark)) {
@@ -193,23 +358,34 @@ fun AuraSyncroWebView(
                         ViewGroup.LayoutParams.MATCH_PARENT,
                         ViewGroup.LayoutParams.MATCH_PARENT
                     )
-                    
-                    // Slightly lighter than black to see if it's rendering
-                    setBackgroundColor(AndroidColor.parseColor("#1A1A1A"))
+
+                    // NON usare LAYER_TYPE_HARDWARE: su molti GPU (Mali, MediaTek) causa schermo nero
+                    setLayerType(View.LAYER_TYPE_NONE, null)
+
+                    setBackgroundColor("#0F0F0F".toColorInt())
 
                     if (BuildConfig.DEBUG) {
                         WebView.setWebContentsDebuggingEnabled(true)
                     }
 
-                    // Reset cache once to fix Service Worker issues
-                    clearCache(true)
+                    // NON puliamo la cache ad ogni avvio nel factory, 
+                    // altrimenti il login potrebbe perdere lo stato della sessione appena creata
+                    // clearCache(true) // Rimosso da qui
 
                     AuraWebViewCompat.configure(this, context)
 
                     settings.apply {
-                        userAgentString = "$userAgentString AuraSyncroMobile/1.0"
+                        // Usiamo un UserAgent standard ma aggiungiamo il nostro suffisso in modo pulito
+                        val defaultUA = userAgentString
+                        userAgentString = "$defaultUA AuraSyncroMobile/1.0"
+                        
                         allowFileAccess = true
                         allowContentAccess = true
+                        domStorageEnabled = true
+                        
+                        // Importante per i login che usano pop-up o redirect complessi
+                        setSupportMultipleWindows(false)
+                        javaScriptCanOpenWindowsAutomatically = true
                     }
 
                     webViewClient = object : WebViewClient() {
@@ -238,6 +414,16 @@ fun AuraSyncroWebView(
                         override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
                             super.onPageStarted(view, url, favicon)
                             isError = false
+                            blankRecoveryAttempts = 0
+                            Log.d(logTag, "Caricamento iniziato: $url")
+                            view?.let {
+                                AuraWebViewCompat.injectCompatScript(it, it.context)
+                            }
+                        }
+
+                        override fun doUpdateVisitedHistory(view: WebView?, url: String?, isReload: Boolean) {
+                            super.doUpdateVisitedHistory(view, url, isReload)
+                            updateCanGoBack(view)
                         }
 
                         override fun onPageCommitVisible(view: WebView?, loadedUrl: String?) {
@@ -247,21 +433,57 @@ fun AuraSyncroWebView(
 
                         override fun onPageFinished(view: WebView?, loadedUrl: String?) {
                             super.onPageFinished(view, loadedUrl)
-                            view?.let { AndroidBridgeInjector.inject(it, it.context) }
+                            view?.let {
+                                AuraWebViewCompat.injectCompatScript(it, it.context)
+                                AndroidBridgeInjector.inject(it, it.context)
+                            }
                             dismissSplashOnce()
-                            canGoBack = view?.canGoBack() == true
+                            updateCanGoBack(view)
+                            Log.d(logTag, "Pagina caricata: $loadedUrl - canGoBack: $canGoBack")
+                            CookieManager.getInstance().flush()
+                            checkBlankPage(view, loadedUrl)
                         }
 
                         override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: WebResourceError?) {
                             super.onReceivedError(view, request, error)
+                            // Alcuni errori minori non devono bloccare l'app
                             if (request?.isForMainFrame == true) {
-                                Log.e(logTag, "Main frame error: ${error?.description}")
+                                val errorDesc = error?.description ?: "Error"
+                                Log.e(logTag, "Main frame error: $errorDesc")
                                 isError = true
                                 dismissSplashOnce()
                             }
                         }
 
+                        override fun onReceivedHttpError(
+                            view: WebView?,
+                            request: WebResourceRequest?,
+                            errorResponse: WebResourceResponse?
+                        ) {
+                            super.onReceivedHttpError(view, request, errorResponse)
+                            if (request?.isForMainFrame == true) {
+                                Log.e(logTag, "HTTP Error: ${errorResponse?.statusCode}")
+                                // Alcuni server rispondono con 4xx/5xx ma mostrano comunque una pagina
+                                // Se il caricamento fallisce drasticamente, lo segnaliamo
+                            }
+                        }
+
+                        override fun onReceivedSslError(
+                            view: WebView?,
+                            handler: SslErrorHandler?,
+                            error: SslError?
+                        ) {
+                            Log.e(logTag, "SSL Error: $error")
+                            // In caso di errore SSL (certificato scaduto, etc) il WebView si blocca.
+                            // Mostriamo la schermata di errore.
+                            isError = true
+                            dismissSplashOnce()
+                            handler?.cancel() // Sicurezza: annulla la connessione non sicura
+                        }
+
                         override fun onRenderProcessGone(view: WebView?, detail: RenderProcessGoneDetail?): Boolean {
+                            Log.w(logTag, "WebView process gone, reloading...")
+                            view?.setLayerType(View.LAYER_TYPE_SOFTWARE, null)
                             view?.reload()
                             return true
                         }
@@ -272,9 +494,22 @@ fun AuraSyncroWebView(
                             loadProgress = newProgress / 100f
                         }
 
+                        override fun onShowFileChooser(
+                            webView: WebView?,
+                            filePathCallback: ValueCallback<Array<Uri>>?,
+                            fileChooserParams: FileChooserParams?,
+                        ): Boolean {
+                            val intent = fileChooserParams?.createIntent()
+                            return if (intent != null && filePathCallback != null) {
+                                onShowFileChooser(intent, filePathCallback)
+                            } else {
+                                false
+                            }
+                        }
+
                         override fun onConsoleMessage(consoleMessage: ConsoleMessage?): Boolean {
                             if (consoleMessage == null) return super.onConsoleMessage(consoleMessage)
-                            Log.d(logTag, "[JS] ${consoleMessage.message()}")
+                            Log.d(logTag, "[JS] ${consoleMessage.messageLevel()}: ${consoleMessage.message()} -- From line ${consoleMessage.lineNumber()} of ${consoleMessage.sourceId()}")
                             return true
                         }
                     }
@@ -285,6 +520,7 @@ fun AuraSyncroWebView(
                             printerManager = printerManager,
                             posManager = posManager,
                             onRequestPermissions = onRequestPermissions,
+                            onCompatEvent = ::handleCompatEvent,
                         ),
                         "AndroidBridge",
                     )
@@ -293,6 +529,7 @@ fun AuraSyncroWebView(
                 }
 
                 webViewInstance = webView
+                onWebViewCreated(webView)
                 webView
             },
             modifier = Modifier
@@ -300,14 +537,15 @@ fun AuraSyncroWebView(
                 .statusBarsPadding()
                 .navigationBarsPadding(),
             onRelease = { view ->
-                (view as? WebView)?.destroy()
+                onWebViewDestroyed()
+                view.destroy()
             },
         )
 
         // Progress Bar overlay
-        if (loadProgress > 0f && loadProgress < 1f) {
+        if (loadProgress < 1f) {
             LinearProgressIndicator(
-                progress = { loadProgress },
+                progress = { if (loadProgress <= 0f) 0.1f else loadProgress },
                 modifier = Modifier
                     .fillMaxWidth()
                     .statusBarsPadding()
@@ -352,7 +590,15 @@ fun AuraSyncroWebView(
                     )
                     Spacer(modifier = Modifier.height(24.dp))
                     Button(
-                        onClick = { webViewInstance?.reload() },
+                        onClick = {
+                            blankRecoveryAttempts = 0
+                            isError = false
+                            val view = webViewInstance
+                            if (view != null) {
+                                AuraWebViewCompat.purgeCaches(view)
+                                view.loadUrl(dashboardUrl)
+                            }
+                        },
                         colors = ButtonDefaults.buttonColors(containerColor = brandGold)
                     ) {
                         Text("RIPROVA", color = brandDark)
