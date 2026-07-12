@@ -54,6 +54,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -217,8 +218,10 @@ fun AuraSyncroWebView(
     var canGoBack by remember { mutableStateOf(false) }
     var loadProgress by remember { mutableFloatStateOf(0f) }
     var isError by remember { mutableStateOf(false) }
-    var blankRecoveryAttempts by remember { mutableStateOf(0) }
+    var isStuck by remember { mutableStateOf(false) }
+    var blankRecoveryAttempts by remember { mutableIntStateOf(0) }
     var currentSpaPath by remember { mutableStateOf("/login") }
+    var isRecoveryNavigation by remember { mutableStateOf(false) }
 
     val logTag = "AuraWebView"
     val brandGold = Color(0xFFC5A059)
@@ -228,23 +231,42 @@ fun AuraSyncroWebView(
         canGoBack = view?.canGoBack() == true
     }
 
+    fun isLoginPath(path: String?): Boolean {
+        if (path.isNullOrBlank()) return true
+        return path == "/" || path.equals("/login", ignoreCase = true)
+    }
+
     fun isLoginUrl(pageUrl: String?): Boolean {
         if (pageUrl.isNullOrBlank()) return false
         return pageUrl.contains("/login", ignoreCase = true)
     }
 
-    fun hardRecover(view: WebView, targetPath: String) {
-        Log.w(logTag, "Hard recovery verso $targetPath (tentativo ${blankRecoveryAttempts + 1})")
-        AuraWebViewCompat.purgeCaches(view)
-        view.setLayerType(View.LAYER_TYPE_SOFTWARE, null)
-        val bustUrl = "$baseUrl$targetPath?_aura=${System.currentTimeMillis()}"
+    fun loadTargetPath(view: WebView, targetPath: String, recover: Boolean = false) {
+        val normalizedPath = targetPath.ifBlank { "/dashboard" }
+        if (recover) {
+            isRecoveryNavigation = true
+            blankRecoveryAttempts++
+            Log.w(logTag, "Recovery verso $normalizedPath (tentativo $blankRecoveryAttempts)")
+        }
+        isStuck = false
+        val bustUrl = "$baseUrl$normalizedPath?_aura=${System.currentTimeMillis()}"
         view.loadUrl(bustUrl)
     }
 
-    fun checkBlankPage(view: WebView?, loadedUrl: String?) {
+    fun resetToLogin(view: WebView) {
+        blankRecoveryAttempts = 0
+        isRecoveryNavigation = false
+        isStuck = false
+        isError = false
+        currentSpaPath = "/login"
+        AuraWebViewCompat.purgeCaches(view)
+        view.loadUrl(loginUrl)
+    }
+
+    fun checkBlankPage(view: WebView?, loadedUrl: String?, delayMs: Long = 8_000L) {
         if (view == null) return
         val path = currentSpaPath
-        if (path == "/login" || path == "/") return
+        if (isLoginPath(path)) return
 
         view.postDelayed({
             view.evaluateJavascript(
@@ -262,25 +284,20 @@ fun AuraSyncroWebView(
                 })()
                 """.trimIndent(),
             ) { result ->
-                if (result == "\"ok\"" || result == "null") return@evaluateJavascript
-                Log.w(logTag, "Pagina bloccata ($result) path=$path url=$loadedUrl")
+                if (result == "\"ok\"" || result == "null") {
+                    isStuck = false
+                    return@evaluateJavascript
+                }
+                Log.w(logTag, "Pagina bloccata ($result) path=$path url=$loadedUrl tentativi=$blankRecoveryAttempts")
                 when {
-                    blankRecoveryAttempts == 0 -> {
-                        blankRecoveryAttempts++
-                        AuraWebViewCompat.injectCompatScript(view, view.context)
-                        view.evaluateJavascript("window.__auraRecoverFromStuckLoading && window.__auraRecoverFromStuckLoading('$path');", null)
-                    }
-                    blankRecoveryAttempts == 1 -> {
-                        blankRecoveryAttempts++
-                        hardRecover(view, path.ifBlank { "/dashboard" })
-                    }
+                    blankRecoveryAttempts < 2 -> loadTargetPath(view, path, recover = true)
                     else -> {
-                        isError = true
+                        isStuck = true
                         onFirstPageLoaded()
                     }
                 }
             }
-        }, 3_000L)
+        }, delayMs)
     }
 
     fun handleCompatEvent(event: String, detailJson: String) {
@@ -288,20 +305,25 @@ fun AuraSyncroWebView(
         val view = webViewInstance ?: return
         when (event) {
             "login-success", "route-change" -> {
-                blankRecoveryAttempts = 0
                 val path = runCatching {
                     org.json.JSONObject(detailJson).optString("path", "/dashboard")
                 }.getOrDefault("/dashboard")
                 currentSpaPath = path
-                checkBlankPage(view, view.url)
+                if (!isRecoveryNavigation) {
+                    blankRecoveryAttempts = 0
+                }
+                checkBlankPage(view, view.url, delayMs = 10_000L)
             }
             "stuck-loading" -> {
                 val path = runCatching {
                     org.json.JSONObject(detailJson).optString("path", "/dashboard")
                 }.getOrDefault("/dashboard")
+                currentSpaPath = path
                 if (blankRecoveryAttempts < 2) {
-                    blankRecoveryAttempts++
-                    hardRecover(view, path)
+                    loadTargetPath(view, path, recover = true)
+                } else {
+                    isStuck = true
+                    onFirstPageLoaded()
                 }
             }
         }
@@ -317,9 +339,9 @@ fun AuraSyncroWebView(
                 if (path != currentSpaPath) {
                     currentSpaPath = path
                     Log.d(logTag, "SPA path cambiato: $path")
-                    if (!isLoginUrl(path)) {
+                    if (!isLoginPath(path) && !isRecoveryNavigation) {
                         blankRecoveryAttempts = 0
-                        checkBlankPage(view, view.url)
+                        checkBlankPage(view, view.url, delayMs = 10_000L)
                     }
                 }
             }
@@ -339,14 +361,12 @@ fun AuraSyncroWebView(
     }
 
     BackHandler(enabled = true) {
+        val view = webViewInstance
         when {
-            isError -> {
-                isError = false
-                blankRecoveryAttempts = 0
-                webViewInstance?.reload()
-            }
-            webViewInstance?.canGoBack() == true -> webViewInstance?.goBack()
-            !isLoginUrl(webViewInstance?.url) -> webViewInstance?.loadUrl(loginUrl)
+            view == null -> Unit
+            isError || isStuck -> resetToLogin(view)
+            view.canGoBack() && !isLoginPath(currentSpaPath) -> view.goBack()
+            !isLoginPath(currentSpaPath) || !isLoginUrl(view.url) -> resetToLogin(view)
         }
     }
 
@@ -414,8 +434,11 @@ fun AuraSyncroWebView(
                         override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
                             super.onPageStarted(view, url, favicon)
                             isError = false
-                            blankRecoveryAttempts = 0
-                            Log.d(logTag, "Caricamento iniziato: $url")
+                            isStuck = false
+                            if (!isRecoveryNavigation) {
+                                blankRecoveryAttempts = 0
+                            }
+                            Log.d(logTag, "Caricamento iniziato: $url recovery=$isRecoveryNavigation")
                             view?.let {
                                 AuraWebViewCompat.injectCompatScript(it, it.context)
                             }
@@ -433,6 +456,7 @@ fun AuraSyncroWebView(
 
                         override fun onPageFinished(view: WebView?, loadedUrl: String?) {
                             super.onPageFinished(view, loadedUrl)
+                            isRecoveryNavigation = false
                             view?.let {
                                 AuraWebViewCompat.injectCompatScript(it, it.context)
                                 AndroidBridgeInjector.inject(it, it.context)
@@ -483,7 +507,6 @@ fun AuraSyncroWebView(
 
                         override fun onRenderProcessGone(view: WebView?, detail: RenderProcessGoneDetail?): Boolean {
                             Log.w(logTag, "WebView process gone, reloading...")
-                            view?.setLayerType(View.LAYER_TYPE_SOFTWARE, null)
                             view?.reload()
                             return true
                         }
@@ -556,9 +579,9 @@ fun AuraSyncroWebView(
             )
         }
 
-        // Custom Error Screen
+        // Schermata errore / pagina bloccata
         AnimatedVisibility(
-            visible = isError,
+            visible = isError || isStuck,
             enter = fadeIn(),
             exit = fadeOut()
         ) {
@@ -578,12 +601,16 @@ fun AuraSyncroWebView(
                     )
                     Spacer(modifier = Modifier.height(16.dp))
                     Text(
-                        text = "Connessione assente",
+                        text = if (isError) "Connessione assente" else "Caricamento bloccato",
                         style = MaterialTheme.typography.headlineSmall,
                         color = Color.White
                     )
                     Text(
-                        text = "Verifica la tua connessione internet e riprova.",
+                        text = if (isError) {
+                            "Verifica la tua connessione internet e riprova."
+                        } else {
+                            "L'app non riesce a caricare la pagina. Puoi riprovare o tornare al login."
+                        },
                         textAlign = TextAlign.Center,
                         color = Color.Gray,
                         modifier = Modifier.padding(vertical = 8.dp)
@@ -591,17 +618,29 @@ fun AuraSyncroWebView(
                     Spacer(modifier = Modifier.height(24.dp))
                     Button(
                         onClick = {
-                            blankRecoveryAttempts = 0
-                            isError = false
                             val view = webViewInstance
                             if (view != null) {
-                                AuraWebViewCompat.purgeCaches(view)
-                                view.loadUrl(dashboardUrl)
+                                blankRecoveryAttempts = 0
+                                isError = false
+                                isStuck = false
+                                loadTargetPath(view, currentSpaPath.ifBlank { "/dashboard" }, recover = false)
                             }
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = brandGold)
                     ) {
                         Text("RIPROVA", color = brandDark)
+                    }
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Button(
+                        onClick = {
+                            webViewInstance?.let(::resetToLogin)
+                        },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color.Transparent,
+                            contentColor = brandGold,
+                        )
+                    ) {
+                        Text("TORNA AL LOGIN")
                     }
                 }
             }

@@ -15,26 +15,13 @@
   var API_BASE = 'https://aura-syncro-s98ae.ondigitalocean.app/api';
   var SITE_BASE = 'https://www.aurasyncro.com';
   var redirectScheduled = false;
+  var stuckNotified = false;
 
   var DEMO_CREDENTIALS = {
     it: { email: 'admin@demo-it.com', password: 'admin123', slug: 'demo-it' },
     es: { email: 'admin@demo-es.com', password: 'admin123', slug: 'demo-es' },
     'es-can': { email: 'admin@demo-es-cn.com', password: 'admin123', slug: 'demo-es-cn' }
   };
-
-  function clearAllCaches() {
-    if (!('caches' in window)) return Promise.resolve();
-    return caches.keys().then(function (keys) {
-      return Promise.all(keys.map(function (key) { return caches.delete(key); }));
-    }).catch(function () {});
-  }
-
-  function unregisterServiceWorkers() {
-    if (!('serviceWorker' in navigator)) return Promise.resolve();
-    return navigator.serviceWorker.getRegistrations().then(function (regs) {
-      return Promise.all(regs.map(function (reg) { return reg.unregister(); }));
-    }).catch(function () {});
-  }
 
   function disableServiceWorkerRegistration() {
     if (!('serviceWorker' in navigator)) return;
@@ -113,36 +100,35 @@
     window.location.assign(target + (target.indexOf('?') === -1 ? '?' : '&') + '_aura=' + Date.now());
   }
 
-  function recoverFromStuckLoading(path) {
-    return clearAllCaches()
-      .then(unregisterServiceWorkers)
-      .then(function () {
-        disableServiceWorkerRegistration();
-        notifyNative('stuck-loading', { path: path || window.location.pathname });
-        hardNavigate(path || '/dashboard');
-      });
+  function notifyStuckLoading(path) {
+    if (stuckNotified) return;
+    stuckNotified = true;
+    notifyNative('stuck-loading', { path: path || window.location.pathname });
   }
 
   function scheduleHardRedirect(path) {
     if (redirectScheduled) return;
     redirectScheduled = true;
+    stuckNotified = false;
     notifyNative('login-success', { path: path });
 
     setTimeout(function () {
       if (window.location.pathname !== path) {
         hardNavigate(path);
       }
-    }, 400);
+    }, 600);
 
     setTimeout(function () {
-      if (isStuckLoading()) {
-        recoverFromStuckLoading(path);
+      var currentPath = window.location.pathname || '/';
+      if (currentPath !== '/login' && currentPath !== '/' && isStuckLoading()) {
+        notifyStuckLoading(currentPath);
       }
-    }, 5000);
+    }, 12000);
   }
 
   function handleSuccessfulLogin(data) {
     if (!data || !data.user || !data.user.id) return;
+    redirectScheduled = false;
     persistAuthSession(data);
     scheduleHardRedirect(resolvePostLoginPath(data));
   }
@@ -197,12 +183,13 @@
     function onRouteChange() {
       var path = window.location.pathname || '/';
       if (path === '/login' || path === '/') return;
+      stuckNotified = false;
       notifyNative('route-change', { path: path });
       setTimeout(function () {
         if (isStuckLoading()) {
-          recoverFromStuckLoading(path);
+          notifyStuckLoading(path);
         }
-      }, 4500);
+      }, 12000);
     }
 
     var pushState = history.pushState;
@@ -250,7 +237,6 @@
   }
 
   window.__auraEnterDemoLive = enterDemoLive;
-  window.__auraRecoverFromStuckLoading = recoverFromStuckLoading;
   window.__auraIsStuckLoading = isStuckLoading;
 
   function installClickHandlers() {
@@ -299,7 +285,6 @@
   }
 
   disableServiceWorkerRegistration();
-  clearAllCaches().then(unregisterServiceWorkers);
   installNetworkHooks();
   hookHistoryApi();
   installClickHandlers();
@@ -309,11 +294,4 @@
   if (document.documentElement) {
     observer.observe(document.documentElement, { childList: true, subtree: true });
   }
-
-  setTimeout(function () {
-    var path = window.location.pathname || '/';
-    if (path !== '/login' && path !== '/' && isStuckLoading()) {
-      recoverFromStuckLoading(path);
-    }
-  }, 7000);
 })();

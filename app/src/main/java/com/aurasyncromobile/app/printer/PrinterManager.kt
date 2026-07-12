@@ -1,6 +1,7 @@
 package com.aurasyncromobile.app.printer
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothManager
@@ -95,6 +96,7 @@ class PrinterManager(private val context: Context) {
         printRaw(payload)
     }
 
+    @SuppressLint("MissingPermission")
     private fun scanBluetoothDevices(includeDiscovery: Boolean): Map<String, PrinterDevice> {
         if (!hasRequiredPermissions()) return emptyMap()
 
@@ -161,6 +163,7 @@ class PrinterManager(private val context: Context) {
         }
     }
 
+    @SuppressLint("MissingPermission")
     private fun BluetoothDevice.toPrinterDevice(): PrinterDevice =
         PrinterDevice(
             id = "bluetooth:$address",

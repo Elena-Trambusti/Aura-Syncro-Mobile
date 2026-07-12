@@ -9,6 +9,8 @@ import android.webkit.ServiceWorkerController
 import android.webkit.WebSettings
 import android.webkit.WebStorage
 import android.webkit.WebView
+import androidx.core.content.edit
+import androidx.core.graphics.toColorInt
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
 import java.util.Collections
@@ -42,13 +44,11 @@ object AuraWebViewCompat {
             setAcceptThirdPartyCookies(webView, true)
         }
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            ServiceWorkerController.getInstance().apply {
-                serviceWorkerWebSettings.apply {
-                    allowContentAccess = true
-                    allowFileAccess = true
-                    blockNetworkLoads = false
-                }
+        ServiceWorkerController.getInstance().apply {
+            serviceWorkerWebSettings.apply {
+                allowContentAccess = true
+                allowFileAccess = true
+                blockNetworkLoads = false
             }
         }
 
@@ -83,7 +83,7 @@ object AuraWebViewCompat {
             isVerticalScrollBarEnabled = false
             isHorizontalScrollBarEnabled = false
             overScrollMode = View.OVER_SCROLL_NEVER
-            setBackgroundColor(android.graphics.Color.parseColor("#0F0F0F"))
+            setBackgroundColor("#0F0F0F".toColorInt())
         }
 
         installDocumentStartScript(webView, context)
@@ -117,9 +117,9 @@ object AuraWebViewCompat {
 
         WebStorage.getInstance().deleteAllData()
         CookieManager.getInstance().removeAllCookies(null)
-        prefs.edit()
-            .putInt("last_version_code", com.aurasyncromobile.app.BuildConfig.VERSION_CODE)
-            .apply()
+        prefs.edit(commit = false) {
+            putInt("last_version_code", com.aurasyncromobile.app.BuildConfig.VERSION_CODE)
+        }
     }
 
     private fun readCompatScript(context: Context): String {
