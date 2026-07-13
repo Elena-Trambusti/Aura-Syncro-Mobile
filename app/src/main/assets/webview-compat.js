@@ -1,21 +1,16 @@
 (function () {
   if (window.__auraCompatInstalled) return;
-  try {
-    if (sessionStorage.getItem('__auraCompatInstalled') === '1') return;
-  } catch (e) {}
   if (navigator.userAgent.indexOf('AuraSyncroMobile') === -1) return;
 
   window.__auraCompatInstalled = true;
-  try { sessionStorage.setItem('__auraCompatInstalled', '1'); } catch (e) {}
 
   var AUTH_CACHE_KEY = 'aura-auth-cache';
   var TOKEN_KEY = 'token';
   var SESSION_TOKEN_KEY = 'aura_session_token';
   var REFRESH_TOKEN_KEY = 'aura_refresh_token';
   var API_BASE = 'https://aura-syncro-s98ae.ondigitalocean.app/api';
-  var SITE_BASE = 'https://www.aurasyncro.com';
-  var redirectScheduled = false;
-  var stuckNotified = false;
+
+  var APP_ROUTES = ['/dashboard', '/tavoli', '/onboarding', '/ordini', '/menu', '/impostazioni'];
 
   var DEMO_CREDENTIALS = {
     it: { email: 'admin@demo-it.com', password: 'admin123', slug: 'demo-it' },
@@ -23,13 +18,16 @@
     'es-can': { email: 'admin@demo-es-cn.com', password: 'admin123', slug: 'demo-es-cn' }
   };
 
-  function disableServiceWorkerRegistration() {
-    if (!('serviceWorker' in navigator)) return;
+  function notifyNative(event, detail) {
     try {
-      navigator.serviceWorker.register = function () {
-        return Promise.reject(new Error('Service worker disabled in AuraSyncroMobile'));
-      };
+      if (window.AndroidBridge && typeof window.AndroidBridge.onAuraCompatEvent === 'function') {
+        window.AndroidBridge.onAuraCompatEvent(event, JSON.stringify(detail || {}));
+      }
     } catch (e) {}
+  }
+
+  function requestNavigation(path, event) {
+    notifyNative(event, { path: path });
   }
 
   function isDemoUser(email) {
@@ -49,20 +47,19 @@
         restaurant: data.restaurant,
         cachedAt: Date.now()
       }));
-    } catch (error) {}
+    } catch (e) {}
     if (typeof data.token === 'string' && data.token.length > 0) {
       try {
         localStorage.setItem(TOKEN_KEY, data.token);
         sessionStorage.setItem(SESSION_TOKEN_KEY, data.token);
-      } catch (error) {}
+      } catch (e) {}
     }
     if (typeof data.refreshToken === 'string' && data.refreshToken.length > 0) {
-      try { localStorage.setItem(REFRESH_TOKEN_KEY, data.refreshToken); } catch (error) {}
+      try { localStorage.setItem(REFRESH_TOKEN_KEY, data.refreshToken); } catch (e) {}
     }
     if (data.restaurant && data.restaurant.id) {
-      try { localStorage.setItem('restaurantId', String(data.restaurant.id)); } catch (error) {}
+      try { localStorage.setItem('restaurantId', String(data.restaurant.id)); } catch (e) {}
     }
-    try { sessionStorage.setItem('aura_mobile_login', String(Date.now())); } catch (error) {}
   }
 
   function resolvePostLoginPath(data) {
@@ -71,66 +68,10 @@
     return '/dashboard';
   }
 
-  function isStuckLoading() {
-    var body = document.body;
-    if (!body) return true;
-    var text = (body.innerText || '').replace(/\s+/g, ' ').trim();
-    var loading = /caricamento in corso|loading/i.test(text);
-    var hasApp = !!document.querySelector(
-      'main, nav, [role="main"], [data-testid], .app-shell, #root > *:not(script):not(style)'
-    );
-    if (loading && !hasApp) return true;
-    return text.length < 8 && !hasApp;
-  }
-
-  function notifyNative(event, detail) {
-    try {
-      if (window.AndroidBridge && typeof window.AndroidBridge.onAuraCompatEvent === 'function') {
-        window.AndroidBridge.onAuraCompatEvent(event, detail ? JSON.stringify(detail) : '');
-      }
-    } catch (e) {}
-  }
-
-  function hardNavigate(path) {
-    var target = SITE_BASE + path;
-    if (window.location.href.indexOf(target) === 0) {
-      window.location.reload();
-      return;
-    }
-    window.location.assign(target + (target.indexOf('?') === -1 ? '?' : '&') + '_aura=' + Date.now());
-  }
-
-  function notifyStuckLoading(path) {
-    if (stuckNotified) return;
-    stuckNotified = true;
-    notifyNative('stuck-loading', { path: path || window.location.pathname });
-  }
-
-  function scheduleHardRedirect(path) {
-    if (redirectScheduled) return;
-    redirectScheduled = true;
-    stuckNotified = false;
-    notifyNative('login-success', { path: path });
-
-    setTimeout(function () {
-      if (window.location.pathname !== path) {
-        hardNavigate(path);
-      }
-    }, 600);
-
-    setTimeout(function () {
-      var currentPath = window.location.pathname || '/';
-      if (currentPath !== '/login' && currentPath !== '/' && isStuckLoading()) {
-        notifyStuckLoading(currentPath);
-      }
-    }, 12000);
-  }
-
   function handleSuccessfulLogin(data) {
     if (!data || !data.user || !data.user.id) return;
-    redirectScheduled = false;
     persistAuthSession(data);
-    scheduleHardRedirect(resolvePostLoginPath(data));
+    requestNavigation(resolvePostLoginPath(data), 'login-success');
   }
 
   function isAuthLoginRequest(url, method) {
@@ -138,74 +79,53 @@
     return String(url).indexOf('/auth/login') !== -1;
   }
 
-  function installNetworkHooks() {
-    if (window.__auraNetworkHooksInstalled) return;
-    window.__auraNetworkHooksInstalled = true;
-
-    if (window.fetch) {
-      var nativeFetch = window.fetch.bind(window);
-      window.fetch = function (input, init) {
-        var url = typeof input === 'string' ? input : (input && input.url) || '';
-        var method = (init && init.method) || (input && input.method) || 'GET';
-        return nativeFetch(input, init).then(function (response) {
-          if (isAuthLoginRequest(url, method) && response.ok) {
-            response.clone().json().then(handleSuccessfulLogin).catch(function () {});
-          }
-          return response;
-        });
-      };
+  function isAppRoute(path) {
+    if (!path) return false;
+    for (var i = 0; i < APP_ROUTES.length; i++) {
+      if (path === APP_ROUTES[i] || path.indexOf(APP_ROUTES[i] + '/') === 0) return true;
     }
-
-    var nativeOpen = XMLHttpRequest.prototype.open;
-    var nativeSend = XMLHttpRequest.prototype.send;
-    XMLHttpRequest.prototype.open = function (method, url) {
-      this.__auraMethod = method;
-      this.__auraUrl = url;
-      return nativeOpen.apply(this, arguments);
-    };
-    XMLHttpRequest.prototype.send = function () {
-      var xhr = this;
-      xhr.addEventListener('load', function () {
-        if (!isAuthLoginRequest(xhr.__auraUrl, xhr.__auraMethod)) return;
-        if (xhr.status < 200 || xhr.status >= 300) return;
-        try {
-          handleSuccessfulLogin(JSON.parse(xhr.responseText));
-        } catch (error) {}
-      });
-      return nativeSend.apply(this, arguments);
-    };
+    return false;
   }
 
-  function hookHistoryApi() {
-    if (window.__auraHistoryHooked) return;
-    window.__auraHistoryHooked = true;
+  function resolveInternalPath(href) {
+    if (!href) return null;
+    if (href.charAt(0) === '/') return href.split('?')[0].split('#')[0];
+    if (href.indexOf('https://www.aurasyncro.com') === 0) {
+      try { return new URL(href).pathname; } catch (e) { return null; }
+    }
+    return null;
+  }
 
-    function onRouteChange() {
-      var path = window.location.pathname || '/';
-      if (path === '/login' || path === '/') return;
-      stuckNotified = false;
-      notifyNative('route-change', { path: path });
-      setTimeout(function () {
-        if (isStuckLoading()) {
-          notifyStuckLoading(path);
+  if (window.fetch) {
+    var nativeFetch = window.fetch.bind(window);
+    window.fetch = function (input, init) {
+      var url = typeof input === 'string' ? input : (input && input.url) || '';
+      var method = (init && init.method) || (input && input.method) || 'GET';
+      return nativeFetch(input, init).then(function (response) {
+        if (isAuthLoginRequest(url, method) && response.ok) {
+          response.clone().json().then(handleSuccessfulLogin).catch(function () {});
         }
-      }, 12000);
-    }
-
-    var pushState = history.pushState;
-    history.pushState = function () {
-      var result = pushState.apply(history, arguments);
-      onRouteChange();
-      return result;
+        return response;
+      });
     };
-    var replaceState = history.replaceState;
-    history.replaceState = function () {
-      var result = replaceState.apply(history, arguments);
-      onRouteChange();
-      return result;
-    };
-    window.addEventListener('popstate', onRouteChange);
   }
+
+  var nativeOpen = XMLHttpRequest.prototype.open;
+  var nativeSend = XMLHttpRequest.prototype.send;
+  XMLHttpRequest.prototype.open = function (method, url) {
+    this.__auraMethod = method;
+    this.__auraUrl = url;
+    return nativeOpen.apply(this, arguments);
+  };
+  XMLHttpRequest.prototype.send = function () {
+    var xhr = this;
+    xhr.addEventListener('load', function () {
+      if (!isAuthLoginRequest(xhr.__auraUrl, xhr.__auraMethod)) return;
+      if (xhr.status < 200 || xhr.status >= 300) return;
+      try { handleSuccessfulLogin(JSON.parse(xhr.responseText)); } catch (e) {}
+    });
+    return nativeSend.apply(this, arguments);
+  };
 
   function pickDemoCredentials() {
     var path = (window.location.pathname || '/').toLowerCase();
@@ -231,67 +151,35 @@
     }).then(function (response) {
       if (!response.ok) throw new Error('Demo login failed');
       return response.json();
-    }).then(function (data) {
-      handleSuccessfulLogin(data);
-    });
+    }).then(handleSuccessfulLogin);
   }
 
   window.__auraEnterDemoLive = enterDemoLive;
-  window.__auraIsStuckLoading = isStuckLoading;
 
-  function installClickHandlers() {
-    document.addEventListener('click', function (event) {
-      var demoButton = event.target && event.target.closest
-        ? event.target.closest('button.lux-hero-cta--live')
-        : null;
-      if (demoButton) {
-        event.preventDefault();
-        event.stopPropagation();
-        event.stopImmediatePropagation();
-        demoButton.disabled = true;
-        enterDemoLive().catch(function () { demoButton.disabled = false; });
-        return;
-      }
-
-      var link = event.target && event.target.closest ? event.target.closest('a[href]') : null;
-      if (!link || link.target === '_blank' || link.hasAttribute('download')) return;
-      var href = link.getAttribute('href');
-      if (!href || href.indexOf('javascript:') === 0 || href.indexOf('#') === 0) return;
-    }, true);
-  }
-
-  function openCalendlyExternally(iframe) {
-    if (!iframe || !iframe.src || iframe.dataset.auraExternalOpened === '1') return;
-    iframe.dataset.auraExternalOpened = '1';
-    if (window.AndroidBridge && typeof window.AndroidBridge.openExternalUrl === 'function') {
-      window.AndroidBridge.openExternalUrl(iframe.src);
-    } else {
-      window.open(iframe.src, '_blank');
+  document.addEventListener('click', function (event) {
+    var demoButton = event.target && event.target.closest
+      ? event.target.closest('button.lux-hero-cta--live')
+      : null;
+    if (demoButton) {
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation();
+      demoButton.disabled = true;
+      enterDemoLive().catch(function () { demoButton.disabled = false; });
+      return;
     }
-  }
 
-  function watchCalendlyFrames() {
-    document.querySelectorAll('iframe[src*="calendly.com"]').forEach(function (iframe) {
-      if (iframe.dataset.auraWatched === '1') return;
-      iframe.dataset.auraWatched = '1';
-      var timeoutId = window.setTimeout(function () {
-        if (iframe.dataset.auraLoaded !== '1') openCalendlyExternally(iframe);
-      }, 6000);
-      iframe.addEventListener('load', function () {
-        iframe.dataset.auraLoaded = '1';
-        window.clearTimeout(timeoutId);
-      });
-    });
-  }
+    var link = event.target && event.target.closest ? event.target.closest('a[href]') : null;
+    if (!link || link.target === '_blank' || link.hasAttribute('download')) return;
+    var href = link.getAttribute('href');
+    if (!href || href.indexOf('javascript:') === 0) return;
 
-  disableServiceWorkerRegistration();
-  installNetworkHooks();
-  hookHistoryApi();
-  installClickHandlers();
+    var path = resolveInternalPath(href);
+    if (!path || !isAppRoute(path)) return;
+    if (window.location.pathname === path) return;
 
-  watchCalendlyFrames();
-  var observer = new MutationObserver(watchCalendlyFrames);
-  if (document.documentElement) {
-    observer.observe(document.documentElement, { childList: true, subtree: true });
-  }
+    event.preventDefault();
+    event.stopPropagation();
+    requestNavigation(path, 'navigate');
+  }, true);
 })();

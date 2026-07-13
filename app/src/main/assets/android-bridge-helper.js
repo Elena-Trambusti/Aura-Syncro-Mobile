@@ -54,7 +54,9 @@
       'installa app',
       'install app',
       'add to home screen',
-      'add to homescreen'
+      'add to homescreen',
+      'ripristina app',
+      'restore app'
     ];
 
     function hasInstallText(value) {

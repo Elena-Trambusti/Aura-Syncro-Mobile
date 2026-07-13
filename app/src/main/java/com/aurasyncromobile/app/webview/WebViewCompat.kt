@@ -2,7 +2,6 @@ package com.aurasyncromobile.app.webview
 
 import android.annotation.SuppressLint
 import android.content.Context
-import android.os.Build
 import android.view.View
 import android.webkit.CookieManager
 import android.webkit.ServiceWorkerController
@@ -11,45 +10,24 @@ import android.webkit.WebStorage
 import android.webkit.WebView
 import androidx.core.content.edit
 import androidx.core.graphics.toColorInt
-import androidx.webkit.WebViewCompat
-import androidx.webkit.WebViewFeature
-import java.util.Collections
-import java.util.WeakHashMap
 
 object AuraWebViewCompat {
     private const val COMPAT_SCRIPT = "webview-compat.js"
-    private val configuredWebViews = Collections.newSetFromMap(WeakHashMap<WebView, Boolean>())
-
-    private const val PURGE_CACHE_SCRIPT = """
-        (function() {
-          if ('caches' in window) {
-            caches.keys().then(function(keys) {
-              return Promise.all(keys.map(function(k) { return caches.delete(k); }));
-            });
-          }
-          if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.getRegistrations().then(function(regs) {
-              regs.forEach(function(r) { r.unregister(); });
-            });
-          }
-        })();
-    """
+    private val configuredWebViews = mutableSetOf<WebView>()
 
     @SuppressLint("SetJavaScriptEnabled")
     fun configure(webView: WebView, context: Context) {
-        if (configuredWebViews.contains(webView)) return
+        if (webView in configuredWebViews) return
 
         CookieManager.getInstance().apply {
             setAcceptCookie(true)
             setAcceptThirdPartyCookies(webView, true)
         }
 
-        ServiceWorkerController.getInstance().apply {
-            serviceWorkerWebSettings.apply {
-                allowContentAccess = true
-                allowFileAccess = true
-                blockNetworkLoads = false
-            }
+        ServiceWorkerController.getInstance().serviceWorkerWebSettings.apply {
+            allowContentAccess = true
+            allowFileAccess = true
+            blockNetworkLoads = false
         }
 
         webView.settings.apply {
@@ -61,53 +39,35 @@ object AuraWebViewCompat {
             javaScriptCanOpenWindowsAutomatically = true
             setSupportMultipleWindows(false)
             mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
-
             cacheMode = WebSettings.LOAD_DEFAULT
-            textZoom = 100
             useWideViewPort = true
-            loadWithOverviewMode = false
+            loadWithOverviewMode = true
             setSupportZoom(true)
             builtInZoomControls = true
             displayZoomControls = false
-
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                safeBrowsingEnabled = false
-            }
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                @Suppress("DEPRECATION")
-                setRenderPriority(WebSettings.RenderPriority.HIGH)
+            safeBrowsingEnabled = false
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+                offscreenPreRaster = true
             }
         }
 
         webView.apply {
-            isVerticalScrollBarEnabled = false
+            isVerticalScrollBarEnabled = true
             isHorizontalScrollBarEnabled = false
-            overScrollMode = View.OVER_SCROLL_NEVER
-            setBackgroundColor("#0F0F0F".toColorInt())
+            overScrollMode = View.OVER_SCROLL_IF_CONTENT_SCROLLS
+            setBackgroundColor("#0D0D0D".toColorInt())
         }
 
-        installDocumentStartScript(webView, context)
         configuredWebViews.add(webView)
     }
 
-    private fun installDocumentStartScript(webView: WebView, context: Context) {
-        val script = readCompatScript(context)
-        if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
-            WebViewCompat.addDocumentStartJavaScript(
-                webView,
-                script,
-                setOf("*"),
-            )
-        }
-    }
-
     fun injectCompatScript(webView: WebView, context: Context) {
-        webView.evaluateJavascript(readCompatScript(context), null)
-    }
-
-    fun purgeCaches(webView: WebView) {
-        webView.evaluateJavascript(PURGE_CACHE_SCRIPT, null)
-        webView.clearCache(true)
+        try {
+            val script = context.assets.open(COMPAT_SCRIPT).bufferedReader().use { it.readText() }
+            webView.evaluateJavascript(script, null)
+        } catch (e: Exception) {
+            android.util.Log.e("AuraWebViewCompat", "Compat script injection failed", e)
+        }
     }
 
     fun clearWebStorageOnAppUpdate(context: Context) {
@@ -120,9 +80,5 @@ object AuraWebViewCompat {
         prefs.edit(commit = false) {
             putInt("last_version_code", com.aurasyncromobile.app.BuildConfig.VERSION_CODE)
         }
-    }
-
-    private fun readCompatScript(context: Context): String {
-        return context.assets.open(COMPAT_SCRIPT).bufferedReader().use { it.readText() }
     }
 }

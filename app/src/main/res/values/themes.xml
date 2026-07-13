@@ -1,7 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
 
-    <style name="Theme.AuraSyncroMobile" parent="android:Theme.Material.Light.NoActionBar" />
+    <style name="Theme.AuraSyncroMobile" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/brand_background_luxury</item>
+        <item name="android:statusBarColor">@color/brand_background_luxury</item>
+        <item name="android:navigationBarColor">@color/brand_background_luxury</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
+        <item name="android:enforceNavigationBarContrast">false</item>
+        <item name="android:enforceStatusBarContrast">false</item>
+    </style>
 
     <style name="Theme.AuraSyncroMobile.Splash" parent="Theme.SplashScreen">
         <item name="windowSplashScreenBackground">@color/brand_background_luxury</item>

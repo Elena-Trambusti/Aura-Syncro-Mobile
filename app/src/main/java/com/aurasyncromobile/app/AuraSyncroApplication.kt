@@ -9,6 +9,7 @@ import android.webkit.WebView
 class AuraSyncroApplication : Application() {
     override fun onCreate() {
         super.onCreate()
+        
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             WebView.setDataDirectorySuffix("aurasyncro")
         }
