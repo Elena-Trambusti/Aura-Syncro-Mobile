@@ -157,18 +157,6 @@
   window.__auraEnterDemoLive = enterDemoLive;
 
   document.addEventListener('click', function (event) {
-    var demoButton = event.target && event.target.closest
-      ? event.target.closest('button.lux-hero-cta--live')
-      : null;
-    if (demoButton) {
-      event.preventDefault();
-      event.stopPropagation();
-      event.stopImmediatePropagation();
-      demoButton.disabled = true;
-      enterDemoLive().catch(function () { demoButton.disabled = false; });
-      return;
-    }
-
     var link = event.target && event.target.closest ? event.target.closest('a[href]') : null;
     if (!link || link.target === '_blank' || link.hasAttribute('download')) return;
     var href = link.getAttribute('href');
