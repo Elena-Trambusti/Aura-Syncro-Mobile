@@ -47,16 +47,16 @@
     openExternalUrl: function (url) { return call('openExternalUrl', url); }
   };
 
+  // Disabilitato temporaneamente: nascondere overlay PWA può bloccare il caricamento login.
   function hideInstallPrompts() {
+    return;
     var textHints = [
       'aggiungi alla schermata',
       'aggiungi a schermata home',
       'installa app',
       'install app',
       'add to home screen',
-      'add to homescreen',
-      'ripristina app',
-      'restore app'
+      'add to homescreen'
     ];
 
     function hasInstallText(value) {
