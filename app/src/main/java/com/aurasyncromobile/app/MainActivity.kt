@@ -34,6 +34,8 @@ import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.lifecycleScope
 import com.aurasyncromobile.app.bridge.AndroidBridgeInjector
+import com.aurasyncromobile.app.bridge.BridgeEvents
+import com.aurasyncromobile.app.hardware.HardwareConfigStore
 import com.aurasyncromobile.app.pos.PosManager
 import com.aurasyncromobile.app.printer.PrinterManager
 import com.aurasyncromobile.app.webview.AuraWebViewCompat
@@ -46,18 +48,28 @@ class MainActivity : ComponentActivity() {
     private val keepSplashVisible = mutableStateOf(true)
     private lateinit var printerManager: PrinterManager
     private lateinit var posManager: PosManager
+    private lateinit var hardwareConfigStore: HardwareConfigStore
     private var fileChooserCallback: ValueCallback<Array<Uri>>? = null
     private lateinit var webView: WebView
 
     private var lastNativeNavigationPath: String? = null
     private var lastNativeNavigationAt: Long = 0L
+    private var webPageReady = false
+    private val pendingBridgeEvents = mutableListOf<Pair<String, org.json.JSONObject>>()
 
     private val logTag = "AuraWebView"
     private val loginUrl by lazy { getString(R.string.pwa_url) }
     private val baseUrl by lazy { getString(R.string.pwa_base_url) }
 
     private val permissionLauncher =
-        registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { /* no-op */ }
+        registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { results ->
+            if (!::webView.isInitialized) return@registerForActivityResult
+            val granted = results.values.all { it }
+            dispatchBridgeEvent(
+                "aurasyncro-permissions-result",
+                org.json.JSONObject().put("granted", granted),
+            )
+        }
 
     private val fileChooserLauncher =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -70,6 +82,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         printerManager = PrinterManager(this)
         posManager = PosManager(this)
+        hardwareConfigStore = HardwareConfigStore(this)
 
         val splashScreen = installSplashScreen()
         splashScreen.setKeepOnScreenCondition { keepSplashVisible.value }
@@ -117,7 +130,25 @@ class MainActivity : ComponentActivity() {
             keepSplashVisible.value = false
         }
 
-        webView.post { webView.loadUrl(loginUrl) }
+        webView.post {
+            webView.loadUrl(loginUrl)
+            handlePaymentDeepLink(intent)
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handlePaymentDeepLink(intent)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (::webView.isInitialized) {
+            webView.onResume()
+            webView.resumeTimers()
+            notifyAppResumed()
+        }
     }
 
     @Suppress("DEPRECATION")
@@ -140,6 +171,7 @@ class MainActivity : ComponentActivity() {
         }
         lastNativeNavigationPath = normalized
         lastNativeNavigationAt = now
+        webPageReady = false
         webView.stopLoading()
         webView.loadUrl(appUrl(normalized))
         Log.i(logTag, "Navigazione nativa verso $normalized")
@@ -193,6 +225,8 @@ class MainActivity : ComponentActivity() {
                     view?.let {
                         AuraWebViewCompat.injectCompatScript(it, this@MainActivity)
                         AndroidBridgeInjector.inject(it, this@MainActivity)
+                        webPageReady = true
+                        flushPendingBridgeEvents(it)
                     }
                     dismissSplash()
                     CookieManager.getInstance().flush()
@@ -260,23 +294,21 @@ class MainActivity : ComponentActivity() {
                     context = this@MainActivity,
                     printerManager = printerManager,
                     posManager = posManager,
+                    hardwareConfigStore = hardwareConfigStore,
                     onRequestPermissions = ::requestHardwarePermissions,
                     onCompatEvent = { event, detail ->
                         runOnUiThread {
                             handleCompatEvent(event, detail)
                         }
                     },
+                    onBridgeEvent = { eventName, detail ->
+                        runOnUiThread {
+                            dispatchBridgeEvent(eventName, detail)
+                        }
+                    },
                 ),
                 "AndroidBridge",
             )
-        }
-    }
-
-    override fun onResume() {
-        super.onResume()
-        if (::webView.isInitialized) {
-            webView.onResume()
-            webView.resumeTimers()
         }
     }
 
@@ -287,6 +319,59 @@ class MainActivity : ComponentActivity() {
         }
         CookieManager.getInstance().flush()
         super.onPause()
+    }
+
+    private fun handlePaymentDeepLink(intent: Intent?) {
+        if (!::webView.isInitialized) return
+        val uri = intent?.data ?: return
+        val parsed = posManager.parsePaymentResultUri(uri) ?: return
+
+        setIntent(
+            Intent(intent).apply {
+                data = null
+                action = Intent.ACTION_MAIN
+            },
+        )
+
+        val orderId = parsed.optString("orderId")
+        val status = parsed.optString("status", "unknown")
+        val txId = parsed.optString("txId").ifBlank { null }
+
+        val result = runCatching {
+            posManager.completePayment(orderId, status, txId, source = "deep-link")
+        }.getOrElse {
+            parsed
+        }
+
+        dispatchBridgeEvent("aurasyncro-payment-result", result)
+        Log.i(logTag, "Pagamento ricevuto via deep link: $result")
+    }
+
+    private fun notifyAppResumed() {
+        val pending = posManager.getPendingPayment()
+        val detail = org.json.JSONObject().put("pendingPayment", pending != null)
+        if (pending != null) {
+            detail.put("payment", pending.toJson())
+        }
+        dispatchBridgeEvent("aurasyncro-app-resumed", detail)
+    }
+
+    private fun dispatchBridgeEvent(eventName: String, detail: org.json.JSONObject) {
+        if (!::webView.isInitialized) return
+        if (!webPageReady) {
+            pendingBridgeEvents += eventName to detail
+            return
+        }
+        BridgeEvents.dispatch(webView, eventName, detail)
+    }
+
+    private fun flushPendingBridgeEvents(webView: WebView) {
+        if (pendingBridgeEvents.isEmpty()) return
+        val events = pendingBridgeEvents.toList()
+        pendingBridgeEvents.clear()
+        events.forEach { (eventName, detail) ->
+            BridgeEvents.dispatch(webView, eventName, detail)
+        }
     }
 
     override fun onDestroy() {

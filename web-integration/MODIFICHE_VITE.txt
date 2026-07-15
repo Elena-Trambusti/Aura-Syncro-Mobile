@@ -1,0 +1,49 @@
+================================================================================
+  MODIFICHE REACT + VITE (COPIA-INCOLLA)
+================================================================================
+
+--- 1. index.html ---
+
+  <body>
+    <div id="root"></div>
+    <script src="/aura-android-bridge.js"></script>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+
+
+--- 2. src/App.tsx ---
+
+  import { AuraHardwareRoot } from '@/components/hardware/AuraHardwareRoot';
+
+  export default function App() {
+    return (
+      <AuraHardwareRoot>
+        <BrowserRouter>
+          {/* le tue route esistenti */}
+        </BrowserRouter>
+      </AuraHardwareRoot>
+    );
+  }
+
+
+--- 3. Router (react-router-dom v6) ---
+
+  import { HardwareSettingsPage } from '@/pages/settings/HardwareSettingsPage';
+
+  <Route path="/dashboard/settings/hardware" element={<HardwareSettingsPage />} />
+
+
+--- 4. Menu impostazioni ---
+
+  <Link to="/dashboard/settings/hardware">Hardware tablet</Link>
+
+
+--- 5. Se @/ non risolve gli import ---
+
+  vite.config.ts:
+    alias: { '@': path.resolve(__dirname, './src') }
+
+  tsconfig:
+    "paths": { "@/*": ["src/*"] }
+
+================================================================================

@@ -1,0 +1,29 @@
+================================================================================
+  INTEGRAZIONE COMPLETATA — React + Vite
+================================================================================
+
+Gestionale: C:\Users\Elena\Documents\progetto per App Ristorante\frontend
+Build: OK (npm run build)
+
+COSA È GIÀ COLLEGATO:
+  [x] public/aura-android-bridge.js
+  [x] index.html carica il bridge
+  [x] AppProviders → AuraHardwareRoot
+  [x] Route /dashboard/settings/hardware
+  [x] Link in Impostazioni
+  [x] Cassa: pagamento POS nativo (modalità EXTERNAL su tablet Android)
+  [x] Comande: stampa cucina automatica su tablet Android
+  [x] Dialog conferma pagamento al ritorno dal POS
+
+ULTIMO PASSO (solo tu puoi farlo se non hai CI automatico):
+  Pubblica il sito su aurasyncro.com (Vercel / DigitalOcean)
+
+  cd "C:\Users\Elena\Documents\progetto per App Ristorante\frontend"
+  (git push se usi deploy automatico, oppure vercel --prod)
+
+Poi sul tablet:
+  1. APK Aura Syncro Mobile aggiornato
+  2. Impostazioni → Hardware → configura stampante e POS
+  3. Prova comanda + pagamento carta
+
+================================================================================

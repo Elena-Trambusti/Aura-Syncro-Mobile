@@ -43,21 +43,16 @@ PASSO 4 - COLLEGA IL SITO WEB ALL'APP (IMPORTANTE)
 --------------------------------------------------------------------------------
 Il tuo sito aurasyncro.com deve "parlare" con l'app.
 
-File gia pronto per te:
+File gia pronto per te (React + Vite):
+  web-integration\vite\   (modulo completo)
   web-integration\aura-android-bridge.js
 
 Cosa fare:
-1. Dai il file aura-android-bridge.js a chi gestisce il sito web
-2. Va incluso nel sito (o copiato nel codice del gestionale)
-3. Quando l'utente stampa uno scontrino, il sito deve chiamare:
+1. Lancia scripts\copia-modulo-sito.ps1 verso il progetto Vite del gestionale
+2. Modifica index.html, App.tsx e aggiungi la route hardware
+3. npm run build e deploy su aurasyncro.com
 
-   AuraSyncro.onReady(function(native) {
-     if (!native.isAvailable) return;
-     native.requestPermissions();
-     native.printText("Test scontrino");
-   });
-
-Senza questo passaggio l'app funziona come browser, ma NON stampa dal gestionale.
+Guida semplice: web-integration\COSA_FARE_SUL_SITO.txt
 
 --------------------------------------------------------------------------------
 PASSO 5 - PRIVACY POLICY ONLINE (obbligatoria)
@@ -139,7 +134,7 @@ FATTO DAL CODICE (non devi rifarlo):
 DEVI FARE TU:
   [ ] Provare app su telefono
   [ ] Account Google Play Developer (~25 USD)
-  [ ] Integrare aura-android-bridge.js nel sito web
+  [ ] Integrare modulo vite nel gestionale React (vedi web-integration\COSA_FARE_SUL_SITO.txt)
   [ ] Pubblicare privacy policy online
   [ ] Preparare screenshot e icona 512px
   [ ] Caricare app-release.aab su Play Console

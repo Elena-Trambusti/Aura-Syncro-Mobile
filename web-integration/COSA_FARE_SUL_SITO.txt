@@ -1,0 +1,92 @@
+================================================================================
+  COSA DEVI FARE — GESTIONALE REACT + VITE + TABLET ANDROID
+================================================================================
+
+Hai DUE progetti:
+
+  1. Aura Syncro Mobile   = app Android (questa cartella)        ✅ PRONTA
+  2. aurasyncro.com       = gestionale React + Vite              ⬅ INTEGRATO
+     Percorso: C:\Users\Elena\Documents\progetto per App Ristorante\frontend
+
+L'app Android apre https://www.aurasyncro.com nel tablet.
+Il gestionale Vite deve includere i file in web-integration/vite/
+
+================================================================================
+  PASSO 1 — APRI IL PROGETTO VITE
+================================================================================
+
+Apri in Cursor la cartella del gestionale (React + Vite).
+
+Di solito contiene:
+  - package.json
+  - vite.config.ts
+  - index.html
+  - cartella src/
+  - cartella public/
+
+================================================================================
+  PASSO 2 — COPIA I FILE (AUTOMATICO)
+================================================================================
+
+PowerShell:
+
+  cd "C:\Users\Elena\Documents\Aura Syncro Mobile"
+  .\scripts\copia-modulo-sito.ps1 -Destinazione "C:\PERCORSO\DEL\TUO\GESTIONALE"
+
+Lo script copia in src/ e public/ del progetto Vite.
+
+================================================================================
+  PASSO 3 — TRE MODIFICHE NEL GESTIONALE
+================================================================================
+
+A) index.html — aggiungi PRIMA di main.tsx:
+
+     <script src="/aura-android-bridge.js"></script>
+
+B) src/App.tsx — avvolgi l'app:
+
+     import { AuraHardwareRoot } from '@/components/hardware/AuraHardwareRoot';
+
+     <AuraHardwareRoot>
+       {/* tutto il resto */}
+     </AuraHardwareRoot>
+
+C) Router — aggiungi la pagina:
+
+     path="/dashboard/settings/hardware"
+     component={HardwareSettingsPage}
+
+   E un link nel menu: "Hardware tablet"
+
+   Esempi: web-integration/vite/src/App.integration.example.tsx
+           web-integration/vite/src/routes.integration.example.tsx
+           web-integration/MODIFICHE_VITE.txt
+
+================================================================================
+  PASSO 4 — BUILD E DEPLOY
+================================================================================
+
+  npm run build
+
+Pubblica su aurasyncro.com (Vercel, Render, ecc.).
+
+================================================================================
+  PASSO 5 — PROVA SUL TABLET
+================================================================================
+
+1. APK aggiornato (Run Android Studio)
+2. Apri app Aura Syncro Mobile
+3. Login gestionale
+4. Impostazioni → Hardware
+5. Configura stampante e POS
+
+================================================================================
+  RIEPILOGO
+================================================================================
+
+  1. Script copia file nel progetto Vite
+  2. index.html + App.tsx + route hardware
+  3. npm run build && deploy
+  4. Tablet → app Android → Impostazioni Hardware
+
+================================================================================

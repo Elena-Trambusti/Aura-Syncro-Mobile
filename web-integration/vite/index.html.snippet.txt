@@ -1,0 +1,5 @@
+Aggiungi in index.html del gestionale Vite, PRIMA di <script type="module" src="/src/main.tsx">:
+
+  <script src="/aura-android-bridge.js"></script>
+
+Il file aura-android-bridge.js va in public/aura-android-bridge.js
