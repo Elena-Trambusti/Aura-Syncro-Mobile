@@ -55,6 +55,8 @@ class MainActivity : ComponentActivity() {
     private var lastNativeNavigationPath: String? = null
     private var lastNativeNavigationAt: Long = 0L
     private var webPageReady = false
+    private var mainFrameErrorRetries = 0
+    private var mainFrameLoadFailed = false
     private val pendingBridgeEvents = mutableListOf<Pair<String, org.json.JSONObject>>()
 
     private val logTag = "AuraWebView"
@@ -214,6 +216,11 @@ class MainActivity : ComponentActivity() {
                     return openExternalUrl(this@MainActivity, request.url)
                 }
 
+                override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
+                    super.onPageStarted(view, url, favicon)
+                    mainFrameLoadFailed = false
+                }
+
                 override fun onPageCommitVisible(view: WebView?, url: String?) {
                     super.onPageCommitVisible(view, url)
                     dismissSplash()
@@ -226,6 +233,7 @@ class MainActivity : ComponentActivity() {
                         AuraWebViewCompat.injectCompatScript(it, this@MainActivity)
                         AndroidBridgeInjector.inject(it, this@MainActivity)
                         webPageReady = true
+                        if (!mainFrameLoadFailed) mainFrameErrorRetries = 0
                         flushPendingBridgeEvents(it)
                     }
                     dismissSplash()
@@ -241,7 +249,10 @@ class MainActivity : ComponentActivity() {
                     super.onReceivedError(view, request, error)
                     if (request?.isForMainFrame != true) return
                     Log.e(logTag, "Errore main frame: ${error?.description} url=${request.url}")
-                    view?.postDelayed({ view.reload() }, 1_000L)
+                    mainFrameLoadFailed = true
+                    if (mainFrameErrorRetries >= 3) return
+                    mainFrameErrorRetries++
+                    view?.postDelayed({ view.reload() }, 1_500L * mainFrameErrorRetries)
                 }
 
                 override fun onReceivedHttpError(
