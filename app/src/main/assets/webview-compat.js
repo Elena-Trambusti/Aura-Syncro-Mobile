@@ -68,10 +68,37 @@
     return '/dashboard';
   }
 
+  function isOnLoginPage() {
+    var path = window.location.pathname || '/';
+    return path === '/' || path === '/login' || path.indexOf('/login/') === 0;
+  }
+
+  function hasStoredToken() {
+    try { return !!localStorage.getItem(TOKEN_KEY); } catch (e) { return false; }
+  }
+
+  var loginFallbackTimer = null;
+
   function handleSuccessfulLogin(data) {
     if (!data || !data.user || !data.user.id) return;
-    persistAuthSession(data);
-    requestNavigation(resolvePostLoginPath(data), 'login-success');
+
+    // Account demo: flusso gestito interamente dall'app.
+    if (isDemoUser(data.user.email)) {
+      persistAuthSession(data);
+      requestNavigation(resolvePostLoginPath(data), 'login-success');
+      return;
+    }
+
+    // Account reali: il sito gestisce da solo sessione e redirect.
+    // Forzare subito storage e ricaricamento interrompe il salvataggio della
+    // sessione e riporta al login. Interveniamo solo se il sito resta fermo.
+    if (loginFallbackTimer) clearTimeout(loginFallbackTimer);
+    loginFallbackTimer = setTimeout(function () {
+      loginFallbackTimer = null;
+      if (!isOnLoginPage()) return;
+      if (!hasStoredToken()) persistAuthSession(data);
+      requestNavigation(resolvePostLoginPath(data), 'login-success');
+    }, 4000);
   }
 
   function isAuthLoginRequest(url, method) {
