@@ -212,7 +212,12 @@ class MainActivity : ComponentActivity() {
             webViewClient = object : WebViewClient() {
                 override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
                     val scheme = request.url.scheme?.lowercase()
-                    if (scheme == "http" || scheme == "https") return false
+                    if (scheme == "http" || scheme == "https") {
+                        // Solo il sito Aura (e il checkout Stripe) restano nell'app: le altre pagine
+                        // avrebbero accesso ad AndroidBridge (stampanti, POS, app installate).
+                        if (!request.isForMainFrame || isInAppUrl(request.url)) return false
+                        return openExternalUrl(this@MainActivity, request.url)
+                    }
                     return openExternalUrl(this@MainActivity, request.url)
                 }
 
@@ -267,8 +272,9 @@ class MainActivity : ComponentActivity() {
                 }
 
                 override fun onReceivedSslError(view: WebView?, handler: SslErrorHandler?, error: SslError?) {
-                    Log.e(logTag, "SSL error: $error — procedo comunque")
-                    handler?.proceed()
+                    // Mai proseguire con un certificato non valido: esporrebbe sessione e password.
+                    Log.e(logTag, "SSL error: $error — caricamento bloccato")
+                    handler?.cancel()
                 }
 
                 override fun onRenderProcessGone(view: WebView?, detail: RenderProcessGoneDetail?): Boolean {
@@ -419,6 +425,15 @@ class MainActivity : ComponentActivity() {
             false
         }
     }
+}
+
+private val IN_APP_HOSTS = setOf("aurasyncro.com", "checkout.stripe.com", "billing.stripe.com")
+
+/** Host che possono essere aperti dentro la WebView (e quindi vedere AndroidBridge). */
+private fun isInAppUrl(uri: Uri): Boolean {
+    if (uri.scheme?.lowercase() != "https") return BuildConfig.DEBUG && uri.host in setOf("localhost", "127.0.0.1")
+    val host = uri.host?.lowercase() ?: return false
+    return IN_APP_HOSTS.any { host == it || host.endsWith(".$it") }
 }
 
 private fun openExternalUrl(context: android.content.Context, uri: Uri): Boolean {
